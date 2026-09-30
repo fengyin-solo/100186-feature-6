@@ -13,6 +13,7 @@ class PageResult(BaseModel, Generic[T]):
     total: int
     page: int = 1
     size: int = 20
+    summary: dict[str, Any] | None = None  # 当前过滤口径下的统计，保证列表条数与概览同源
 
 
 class ActionResult(BaseModel):

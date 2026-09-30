@@ -19,15 +19,24 @@ STATUSES = ["待移交", "正常运行", "重点观测", "封闭施工"]
 @router.get("", response_model=PageResult[dict])
 def list_entries(
     keyword: str | None = Query(default=None, description="按管段编号检索"),
+    category: str | None = Query(default=None, description="按管道类别过滤"),
+    start_manhole: str | None = Query(default=None, description="按起点井号过滤"),
     status: str | None = Query(default=None, description="待移交、正常运行、重点观测、封闭施工"),
     page: int = 1,
     size: int = 20,
 ) -> PageResult[dict]:
-    """按管段编号与状态过滤管段档案列表；没有数据时返回空页，不报错。"""
+    """管段编号、管道类别、起点井号并列过滤（取交集，互不覆盖）；没有数据时返回空页，不报错。"""
     if size > 200:
         raise HTTPException(status_code=400, detail="每页最多 200 条，请缩小分页范围")
-    items, total = service.list_entries(keyword=keyword, status=status, page=page, size=size)
-    return PageResult(items=items, total=total, page=page, size=size)
+    items, total, summary = service.list_entries(
+        keyword=keyword,
+        category=category,
+        start_manhole=start_manhole,
+        status=status,
+        page=page,
+        size=size,
+    )
+    return PageResult(items=items, total=total, page=page, size=size, summary=summary)
 
 
 @router.get("/{entry_id}", response_model=dict)
@@ -41,10 +50,12 @@ def get_entry(entry_id: int) -> dict:
 
 @router.post("", response_model=ActionResult)
 def create_entry(payload: EntryPayload) -> ActionResult:
-    """登记一条管段，缺字段时说明原因而不是静默丢弃。"""
-    entry, missing = service.create_entry(payload.values)
+    """登记一条管段，缺字段时说明原因而不是静默丢弃；同管段编号重复提交按最新一版覆盖。"""
+    entry, missing, updated = service.create_entry(payload.values)
     if missing:
         return ActionResult(ok=False, message=f"缺少必填字段：{'、'.join(missing)}")
+    if updated:
+        return ActionResult(ok=True, message="同编号管段已存在，档案已更新为最新一版", entry=entry)
     return ActionResult(ok=True, message="管段已登记", entry=entry)
 
 
@@ -60,6 +71,6 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
 
 @router.get("/export")
 def export_entries() -> dict[str, Any]:
-    """导出管段档案清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
+    """导出管段档案清单：返回全量数据。"""
+    items, total, _summary = service.list_entries(page=1, size=10000)
     return {"module": "pipe", "total": total, "items": items}
